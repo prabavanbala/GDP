@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch_geometric.utils import dense_to_sparse, to_dense_adj
 from torch.optim import lr_scheduler
+import wandb
 
 
 
@@ -107,10 +108,18 @@ torch.backends.cudnn.benchmark = False
 device = torch.device('cuda:'+str(args.device_id) if torch.cuda.is_available() else 'cpu')
 print('Device:', device)
 
+wandb.init(
+    project="thesis",
+    group="GDP",
+    name=f"DYGR_{args.suffix}_sf{args.sample_freq}_seed{seed}",
+    config=vars(args)
+)
+
 if 'netsim' in args.suffix:
     x_tr, x_va, x_te, A = load_netsim_data(args)
 else:
     x_tr, x_va, x_te, A = load_data(args) # loaded data has shape [batch, nodes, variables, time]
+    print('x_tr.shape: ', x_tr.shape)
 
 if args.K==0:
     args.K=1
@@ -211,7 +220,26 @@ if __name__ == '__main__':
             loss_te = test(test_loader)
 
             A_soft, A_hard = generate_prediction(graph.logits.data,edge_index)
-            auc, acc, pre = cal_accuracy(A, A_soft, A_hard, num_edges, epoch)            
+            auc, acc, pre = cal_accuracy(A, A_soft, A_hard, num_edges, epoch)   
+
+            #debug for drift diffusion
+            if epoch % 50 == 0:
+                with torch.no_grad():
+                    edge_prob, _ = graph(edge_index)
+            
+                print(
+                    f"edge_prob: "
+                    f"min={edge_prob.min().item():.4f}, "
+                    f"max={edge_prob.max().item():.4f}, "
+                    f"mean={edge_prob.mean().item():.4f}"
+                )
+
+                edge_prob = edge_prob.cpu()
+
+                true_edges = A.astype(bool)
+                
+                print("Mean prob (true edges):", A_soft[true_edges].mean())
+                print("Mean prob (non-edges):", A_soft[~true_edges].mean())
         
             if loss_va < best_val_loss:
                 best_train_loss =loss_tr
@@ -228,10 +256,31 @@ if __name__ == '__main__':
                 'Current AUC: {:.4f}'.format(auc),
                 'Current ACC: {:.4f}'.format(acc),
                 'Current PRE: {:.4f}'.format(pre))
+
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": loss_tr,
+                "valid_loss": loss_va,
+                "test_loss": loss_te,
+                "auc": auc,
+                "acc": acc,
+                "precision": pre,
+                "best_auc": best_auc_from_va,
+                "best_acc": best_acc_from_va,
+                "best_val_loss": best_val_loss,
+            })
     import sys
 
     log_file = open('results_logs/dygr_'+args.suffix+'_'+str(args.sample_freq)+'_'+str(args.tr_num)+'_'+str(args.trajr_length)+'_'+str(args.K)+'_'+args.filter +'_'+ str(args.heads)+'_'+'{:1.0E}'.format(p)+'.txt', 'a')
     sys.stdout = log_file
     print('seed:{:08d}, auc:{:.4f}, acc:{:.4f}, last_acc:{:.4f}, train_loss:{:.8f}, test_loss:{:.8f}'.format(seed,best_auc_from_va,best_acc_from_va,auc,best_train_loss,best_mes_from_va))
     sys.stdout = sys.__stdout__
+
+    wandb.summary["best_auc"] = best_auc_from_va
+    wandb.summary["best_acc"] = best_acc_from_va
+    wandb.summary["best_train_loss"] = best_train_loss
+    wandb.summary["best_test_loss"] = best_mes_from_va
+    wandb.summary["seed"] = seed
+    
+    wandb.finish()
     log_file.close()

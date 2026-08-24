@@ -19,6 +19,8 @@ from torch.optim import lr_scheduler
 import matplotlib.pyplot as plt
 import networkx as nx
 import random
+import wandb
+
 
 parser = argparse.ArgumentParser()
 # data
@@ -85,6 +87,12 @@ torch.backends.cudnn.benchmark = False
 device = torch.device('cuda:'+str(args.device_id) if torch.cuda.is_available() else 'cpu')
 print('Device:', device)
 
+wandb.init(
+    project="thesis",
+    group="GDP",
+    name=f"NRI_{args.suffix}_sf{args.sample_freq}_seed{seed}",
+    config=vars(args)
+)
 
 if 'netsim' in args.suffix:
     x_tr, x_va, x_te, A = load_netsim_data(args)
@@ -196,6 +204,19 @@ def train():
                 'Current ACC: {:.4f}'.format(acc),
                 'Current PRE: {:.4f}'.format(pre))
 
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": loss_tr,
+                "valid_loss": loss_va,
+                "test_loss": loss_te,
+                "auc": auc,
+                "acc": acc,
+                "precision": pre,
+                "best_auc": best_auc_from_va,
+                "best_acc": best_acc_from_va,
+                "best_val_loss": best_val_loss,
+            })
+
     return best_auc_from_va,best_acc_from_va,auc,best_train_loss,best_mes_from_va
 
 
@@ -272,6 +293,14 @@ if __name__ == '__main__':
     sys.stdout = log_file
     print('seed:{:08d}, auc:{:.4f}, acc:{:.4f}, last_acc:{:.4f}, train_loss:{:.8f}, test_loss:{:.8f}'.format(seed,best_auc_from_va,best_acc_from_va,last_auc,best_train_loss,best_mes_from_va))
     sys.stdout = sys.__stdout__
+
+    wandb.summary["best_auc"] = best_auc_from_va
+    wandb.summary["best_acc"] = best_acc_from_va
+    wandb.summary["best_train_loss"] = best_train_loss
+    wandb.summary["best_test_loss"] = best_mes_from_va
+    wandb.summary["seed"] = seed
+    
+    wandb.finish()
     log_file.close()
 
             

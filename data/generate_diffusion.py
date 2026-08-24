@@ -91,10 +91,13 @@ if __name__ == '__main__':
             x_te[i] = simulation(t)
 
         #A = nx.to_numpy_array(G)
+        print("x_tr max:", np.max(np.abs(x_tr)))
+        print("x_va max:", np.max(np.abs(x_va)))
+        print("x_te max:", np.max(np.abs(x_te)))
 
-        x_tr = x_tr.astype(np.float16)
-        x_va = x_va.astype(np.float16)
-        x_te = x_te.astype(np.float16)
+        x_tr = x_tr.astype(np.float32)
+        x_va = x_va.astype(np.float32) #was float16 before
+        x_te = x_te.astype(np.float32)
 
         result = [x_tr,x_va,x_te,A]
         data_path = 'DF_' + args.graph + str(n) + '_exp' + str(exp_id) +'.pickle'
